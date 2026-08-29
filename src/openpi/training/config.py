@@ -19,6 +19,7 @@ import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
+import openpi.policies.jaka_mini2_policy as jaka_mini2_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
@@ -352,6 +353,47 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotJakaMini2DataConfig(DataConfigFactory):
+    """LeRobot transforms for native 12-D JAKA/O6 absolute actions."""
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "image": {
+                            "base_0_rgb": "observation.images.base_0_rgb",
+                            "left_wrist_0_rgb": "observation.images.left_wrist_0_rgb",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+        data_transforms = _transforms.Group(
+            inputs=[jaka_mini2_policy.JakaMini2Inputs(model_type=model_config.model_type)],
+            outputs=[jaka_mini2_policy.JakaMini2Outputs()],
+        )
+        # Arm dimensions are trained as deltas; native O6 positions stay absolute.
+        delta_action_mask = _transforms.make_bool_mask(6, -6)
+        data_transforms = data_transforms.push(
+            inputs=[_transforms.DeltaActions(delta_action_mask)],
+            outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+        )
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=ModelTransformFactory()(model_config),
+            action_sequence_keys=("action",),
+            prompt_from_task=True,
         )
 
 
@@ -828,6 +870,20 @@ _CONFIGS = [
     #
     # Fine-tuning DROID configs.
     #
+    TrainConfig(
+        name="pi05_jaka_mini2_o6",
+        # Keep the pretrained pi0.5 internal action width (32). The robot
+        # transform pads 12-D targets and slices outputs back to 12-D.
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
+        data=LeRobotJakaMini2DataConfig(
+            repo_id="jaka_mini2_linker_o6_coffee_service_v001",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        batch_size=32,
+        num_train_steps=30_000,
+        policy_metadata={"task": "coffee_dispense_and_handover", "action_dim": 12},
+    ),
     TrainConfig(
         # This config is for fine-tuning pi0-FAST-base on the *full* DROID dataset.
         # We use RLDS data loading to make training on this large dataset tractable.

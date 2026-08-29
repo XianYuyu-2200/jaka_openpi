@@ -1,0 +1,282 @@
+# Local robot deployment contract.
+#
+# Keep unknown required values as null. Run:
+#   uv run deployment/local/validate_robot_config.py
+# to print the next value that must be provided, or add --all to see every
+# missing value at once.
+
+schema_version: 1
+
+robot:
+  # Required: manufacturer and exact model, for example "Universal Robots UR5e".
+  model: "JAKA Mini 2"
+  # Required: the SDK, ROS package, or control API used by the local controller.
+  control_interface:
+    type: "JAKA Official C++ SDK"
+    library: "libjakaAPI.so"
+    transport: "Ethernet/IP"
+    command_mode: "servo_j absolute joint position"
+    control_period_ms: 8
+    operator_robot_ip: "192.168.0.101"
+    follower_robot_ip: "192.168.0.102"
+    arm_ros_used: false
+    hand_ros_used: true
+    hand_ros_version: 2
+
+runtime:
+  # Required: command loop frequency used while collecting and executing actions.
+  control_frequency_hz: 125
+  policy_frequency_hz: 5
+  low_level_interpolation:
+    enabled: true
+    low_level_steps_per_policy_step: 25
+    method: "linear_position_interpolation"
+  # Local inference is intentionally kept behind a loopback WebSocket endpoint.
+  policy_host: "127.0.0.1"
+  policy_port: 8000
+
+observation:
+  state_source: "follower_robot"
+  state_source_ip: "192.168.0.102"
+  # Required: ordered state vector fields. Training and inference must use the
+  # exact same order, units, and meaning.
+  state_fields:
+    - follower_joint_1_position
+    - follower_joint_2_position
+    - follower_joint_3_position
+    - follower_joint_4_position
+    - follower_joint_5_position
+    - follower_joint_6_position
+    - follower_hand_joint_1_position
+    - follower_hand_joint_2_position
+    - follower_hand_joint_3_position
+    - follower_hand_joint_4_position
+    - follower_hand_joint_5_position
+    - follower_hand_joint_6_position
+  state_dimension: 12
+  state_semantics:
+    joint_positions: "JAKA Mini 2 J1-J6 actual joint angles"
+    hand_positions: "Linker Hand O6 native 6-DoF JointState.position"
+  state_units:
+    arm: "rad"
+    hand: "device_position_0_255"
+  excluded_state_fields:
+    - end_effector_cartesian_pose
+    - joint_velocity
+    - force
+    - torque
+  # Required: one entry per camera used by the policy.
+  cameras:
+    - name: external
+      model: "Orbbec Gemini 335L"
+      connection: "USB"
+      usb_id: "2bc5:0804"
+      serial_number: "CP28563000AJ"
+      device_binding: "serial_number"
+      current_usb_path: "2-3"
+      physically_connected: true
+      usb_enumeration_verified: true
+      color_frame_capture_verified: true
+      color_frame_verification_backend: "Orbbec SDK 2.9.3"
+      dual_camera_pairing_verified: true
+      max_observed_pair_skew_ms: 19.684
+      mounting: "fixed external view"
+      policy_role: "base_0_rgb"
+      resolution: [1280, 800]
+      fps: 30
+      color_order: "RGB"
+      policy_streams: [color]
+    - name: wrist
+      model: "Orbbec Gemini 305"
+      connection: "USB"
+      usb_id: "2bc5:0840"
+      serial_number: "CV2L761000KT"
+      device_binding: "serial_number"
+      current_usb_path: "2-1"
+      physically_connected: true
+      usb_enumeration_verified: true
+      color_frame_capture_verified: true
+      color_frame_verification_backend: "Orbbec SDK 2.9.3"
+      dual_camera_pairing_verified: true
+      max_observed_pair_skew_ms: 19.684
+      mounting: "wrist"
+      policy_role: "left_wrist_0_rgb"
+      resolution: [1280, 800]
+      fps: 30
+      color_order: "RGB"
+      policy_streams: [color]
+
+action:
+  sample_frequency_hz: 5
+  # Required examples: joint_position, joint_velocity, joint_delta, ee_delta.
+  type: "joint_position"
+  # Required: number of scalar values in one robot command, including gripper.
+  dimension: 12
+  # Required: ordered meaning of every action dimension.
+  components:
+    - follower_joint_1_position
+    - follower_joint_2_position
+    - follower_joint_3_position
+    - follower_joint_4_position
+    - follower_joint_5_position
+    - follower_joint_6_position
+    - follower_hand_joint_1_position
+    - follower_hand_joint_2_position
+    - follower_hand_joint_3_position
+    - follower_hand_joint_4_position
+    - follower_hand_joint_5_position
+    - follower_hand_joint_6_position
+  # Required: units matching components, for example [rad, rad, ..., normalized].
+  units:
+    - rad
+    - rad
+    - rad
+    - rad
+    - rad
+    - rad
+    - device_position_0_255
+    - device_position_0_255
+    - device_position_0_255
+    - device_position_0_255
+    - device_position_0_255
+    - device_position_0_255
+  # Required: whether actions are absolute or relative/delta commands.
+  representation: "absolute"
+  # Required: number of future actions predicted in one model call.
+  horizon: 16
+
+gripper:
+  # Required. Set present to false if there is no gripper.
+  present: true
+  device: "Linker Hand O6"
+  native_dimension: 6
+  transport:
+    type: "RS485"
+    protocol: "Modbus RTU"
+    port: "/dev/ttyUSB0"
+    baudrate: 115200
+    bytesize: 8
+    parity: "N"
+    stopbits: 1
+    slave_id: 40 # 左手 0x28；右手为 0x27
+    function_codes:
+      read_input_registers: 4
+      write_holding_registers: 16
+    protocol_source: "O6机械手485协议简要说明_1783907046316.xlsx"
+    device_path_confirmed: false
+    hardware_communication_verified: false
+    base_registers_0_29_confirmed: true
+    extended_device_info_registers_confirmed: false
+    pressure_registers_confirmed: false
+    initialize_pose_on_startup: false
+  state:
+    topic: "/cb_left_hand_state"
+    topic_mode: "device_position"
+    message_type: "sensor_msgs/msg/JointState"
+    field: "position"
+    units: "dimensionless"
+    range: [0, 255]
+    arc_topic_used: false
+  command:
+    candidate_topics:
+      - "/cb_left_hand_control_cmd"
+      - "/cb_right_hand_control_cmd"
+    selected_topic: "/cb_left_hand_control_cmd"
+    topic_mode: "device_position"
+    message_type: "sensor_msgs/msg/JointState"
+    field: "position"
+    representation: "absolute"
+    units: "dimensionless"
+    range: [0, 255]
+    arc_topic_used: false
+  policy_interface:
+    # Choose scalar_synergy (7-D total action) or native_6d (12-D total action).
+    representation: "native_6d"
+    scalar_to_native_mapping: null
+  # Required only when present is true.
+  component_name: "follower_hand_joint_positions"
+  open_value: null
+  closed_value: null
+
+dataset:
+  # LeRobot dataset identifier/version used for immutable uploads.
+  project: "jaka_mini2_o6_coffee_service"
+  id: "jaka_mini2_linker_o6_coffee_service_v001"
+  task:
+    name: "coffee_dispense_and_handover"
+    prompt_zh_cn: "拿起水杯，将水杯放到咖啡机出水口正下方，用手指按下出水按钮，等待约5秒，然后拿起水杯并递给面前的人。"
+    stages:
+      - approach_and_grasp_cup
+      - place_cup_under_dispenser
+      - press_dispense_button
+      - wait_for_dispensing
+      - regrasp_cup
+      - handover_to_person
+  # Required: successful demonstrations only, or another explicit policy.
+  episode_success_policy:
+    training_dataset: "complete_success_only"
+    failed_episodes: "store_separately"
+    interrupted_episodes: "exclude_from_training"
+    human_safety_intervention: "exclude_from_training"
+  # Prompt language should remain consistent across collection and inference.
+  prompt_language: "zh-CN"
+
+safety:
+  # Required before any model action is sent to the robot.
+  emergency_stop_available: true
+  emergency_stop:
+    type: "physical"
+    stops_arm: true
+    stops_hand: true
+    software_emergency_stop_required: false
+    recovery: "manual_reset_required"
+  command_timeout_ms:
+    low_level_servo: 100
+    policy_inference: 1000
+  timeout_behavior:
+    hold_current_position: true
+    discard_remaining_action_chunk: true
+    abort_episode: true
+    automatic_resume: false
+  # Runtime safety envelope derived from the nominal joint ranges in the JAKA
+  # ROS jaka_minicobo.urdf, with 0.10 rad removed from both ends. These are not
+  # confirmed controller soft limits: the public JAKA SDK exposes
+  # is_on_limit(), but no API for reading the configured J1-J6 limits. The
+  # association between jaka_minicobo.urdf and this JAKA Mini 2 must also be
+  # checked against the controller parameter page before commissioning.
+  joint_position_limits:
+    J1: [-6.18, 6.18]
+    J2: [-1.99, 1.99]
+    J3: [-2.17, 2.17]
+    J4: [-6.18, 6.18]
+    J5: [-1.99, 1.99]
+    J6: [-6.18, 6.18]
+  joint_position_limit_margin_rad: 0.10
+  joint_position_limit_source: "JAKA jaka_minicobo.urdf"
+  controller_limits_confirmed: false
+  joint_position_limit_violation_behavior: "hold_and_stop"
+  # Conservative application limits; the URDF nominal velocity is 1.57 rad/s
+  # for J1-J6. These values are not confirmed controller limits.
+  joint_velocity_limits:
+    J1: 0.50
+    J2: 0.50
+    J3: 0.50
+    J4: 0.35
+    J5: 0.35
+    J6: 0.35
+  joint_velocity_limit_units: "rad/s"
+  joint_velocity_limit_source: "conservative application limits; URDF nominal limit is 1.57 rad/s"
+  joint_velocity_limits_confirmed: false
+  joint_velocity_limit_violation_behavior: "hold_and_stop"
+  # P1-P11 recorded TCP bounds, expanded by exactly 10 mm on each axis.
+  workspace_limits:
+    coordinate_frame: "current_controller_user_frame"
+    tcp_frame: "current_controller_tool_tcp"
+    units: "mm"
+    x: [43.26, 353.53]
+    y: [-558.89, -279.32]
+    z: [43.48, 490.15]
+    violation_behavior: "hold_and_stop"
+  workspace_limit_margin_mm: 10.0
+  workspace_limit_source: "P1-P11 recorded TCP bounds with exactly 10 mm margin"
+  workspace_limits_confirmed: false

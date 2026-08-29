@@ -1,0 +1,171 @@
+diff --git a/linker_hand_ros2_sdk/launch/linker_hand.launch.py b/linker_hand_ros2_sdk/launch/linker_hand.launch.py
+index 60c5906..36bebbf 100644
+--- a/linker_hand_ros2_sdk/launch/linker_hand.launch.py
++++ b/linker_hand_ros2_sdk/launch/linker_hand.launch.py
+@@ -14,9 +14,13 @@ def generate_launch_description():
+             parameters=[{
+                 'hand_type': 'left', # 配置Linker Hand灵巧手类型 left | right 字母为小写
+                 'hand_joint': "O6", # O6\L6P\L6\L7\L10\L20\G20(工业版)\L21 字母为大写
+-                'is_touch': True, # 配置Linker Hand灵巧手是否有压力传感器 True | False
+-                'can': 'can0', # 这里需要修改为实际的CAN总线名称 如果是win系统则类似于 PCAN_USBBUS1。注：蓝色盒子为Linux下can0，WIN下位PCAN_USBBUS1。透明盒子Linux下为can0，WIN下为0
+-                "modbus": "None" # "None" | "/dev/ttyUSB0" 这里需要修改为实际的Modbus总线名称 如果是win系统则 COM* Ubuntu则为/dev/ttyUSB* 注意添加sudo chmod 777 /dev/ttyUSB*权限
++                # The O6 uses Modbus RTU over USB-RS485. The CAN parameter is
++                # ignored whenever modbus is not "None".
++                'is_touch': False, # 压感扩展寄存器尚未由现场协议/固件确认
++                'can': 'can0',
++                "modbus": "/dev/ttyUSB0", # 接入后按实际枚举结果修改为 /dev/ttyUSB* 或 /dev/ttyACM*
++                'initialize_pose': False, # 仅验证状态和话题时禁止启动后自动改变手型
++                'read_device_info': False, # Excel 仅定义 30-35；暂不读取 SDK 的 30-44 扩展区
+             }],
+         ),
+     ])
+diff --git a/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/config/setting.yaml b/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/config/setting.yaml
+index 506adc4..48092ba 100644
+--- a/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/config/setting.yaml
++++ b/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/config/setting.yaml
+@@ -2,10 +2,10 @@ VERSION: 3.2.3 # 支持G20 RS485通讯模式、支持L6、O6全掌传感器
+ LINKER_HAND:  # 手部配置信息
+   LEFT_HAND:
+     EXISTS: True # 是否存在左手
+-    TOUCH: True # 是否有压力传感器
++    TOUCH: False # 压感扩展寄存器尚未由现场协议/固件确认
+     CAN: "can0"  # 配置CAN端口 默认can0 如果MODUBS不为"None",则CAN配置失效。 如果是win系统则类似于 PCAN_USBBUS1。注：蓝色盒子为Linux下can0，WIN下位PCAN_USBBUS1。透明盒子Linux下为can0，WIN下为0
+-    MODBUS: "None" # 通讯协议是否为485 默认None 如果启动485，则是设备端口 /dev/ttyUSB* CAN配置失效 当前只支持O6/L6.后续版本正在努力增加中
+-    JOINT: L6 # 左手型号 O6/L6/L7/L10/L20/G20/L21/L25/
++    MODBUS: "/dev/ttyUSB0" # USB-RS485 接入后按实际枚举结果修改；非 None 时 CAN 配置失效
++    JOINT: O6 # 左手型号 O6/L6/L7/L10/L20/G20/L21/L25/
+     NAME: # 默认值，不用修改
+       - joint41
+       - joint42
+diff --git a/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/linker_hand_api.py b/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/linker_hand_api.py
+index 95a254d..c20a308 100644
+--- a/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/linker_hand_api.py
++++ b/linker_hand_ros2_sdk/linker_hand_ros2_sdk/LinkerHand/linker_hand_api.py
+@@ -17,7 +17,14 @@ from utils.open_can import OpenCan
+
+
+ class LinkerHandApi:
+-    def __init__(self, hand_type="left", hand_joint="L10", modbus = "None",can="can0"):  # Ubuntu:can0   win:PCAN_USBBUS1
++    def __init__(
++        self,
++        hand_type="left",
++        hand_joint="L10",
++        modbus="None",
++        can="can0",
++        read_device_info=True,
++    ):  # Ubuntu:can0   win:PCAN_USBBUS1
+         self.last_position = []
+         self.yaml = LoadWriteYaml()
+         self.config = self.yaml.load_setting_yaml()
+@@ -87,13 +94,15 @@ class LinkerHandApi:
+             if not self.is_can:
+                 ColorMsg(msg=f"{self.can} interface is not open", color="red")
+                 sys.exit(1)
+-        version = self.get_embedded_version()
+-        self.serial_number = self.get_serial_number()
+-        if version is None or len(version) == 0:
+-            ColorMsg(msg="Warning: Hardware version number not recognized, it is recommended to terminate the program and re insert USB to CAN conversion", color="yellow")
+-        else:
+-            ColorMsg(msg=f"Embedded:{version}", color="green")
+-        ColorMsg(msg=f"Linker Hand Serial Number: {self.serial_number}", color="green")
++        self.serial_number = None
++        if read_device_info:
++            version = self.get_embedded_version()
++            self.serial_number = self.get_serial_number()
++            if version is None or len(version) == 0:
++                ColorMsg(msg="Warning: Hardware version number not recognized, it is recommended to terminate the program and re insert USB to CAN conversion", color="yellow")
++            else:
++                ColorMsg(msg=f"Embedded:{version}", color="green")
++            ColorMsg(msg=f"Linker Hand Serial Number: {self.serial_number}", color="green")
+
+
+     # Five-finger movement
+diff --git a/linker_hand_ros2_sdk/linker_hand_ros2_sdk/linker_hand.py b/linker_hand_ros2_sdk/linker_hand_ros2_sdk/linker_hand.py
+index da7649c..c9eee1f 100644
+--- a/linker_hand_ros2_sdk/linker_hand_ros2_sdk/linker_hand.py
++++ b/linker_hand_ros2_sdk/linker_hand_ros2_sdk/linker_hand.py
+@@ -25,10 +25,12 @@ class LinkerHand(Node):
+         super().__init__(name)
+         # 声明参数（带默认值）
+         self.declare_parameter('hand_type', 'left')
+-        self.declare_parameter('hand_joint', 'L6')
++        self.declare_parameter('hand_joint', 'O6')
+         self.declare_parameter('is_touch', False)
+         self.declare_parameter('can', 'can0')
+-        self.declare_parameter('modbus', "None")
++        self.declare_parameter('modbus', "/dev/ttyUSB0")
++        self.declare_parameter('initialize_pose', False)
++        self.declare_parameter('read_device_info', False)
+
+         # ros时间获取
+         self.stamp_clock = Clock()
+@@ -38,6 +40,8 @@ class LinkerHand(Node):
+         self.is_touch = self.get_parameter('is_touch').value
+         self.can = self.get_parameter('can').value
+         self.modbus = self.get_parameter('modbus').value
++        self.initialize_pose = self.get_parameter('initialize_pose').value
++        self.read_device_info = self.get_parameter('read_device_info').value
+         self.sdk_v = 2
+         self.sleep_time = 0.005
+         self.cmd_lock = False
+@@ -98,7 +102,13 @@ class LinkerHand(Node):
+         self.thread_pub_state.start()
+
+     def _init_hand(self):
+-        self.api = LinkerHandApi(hand_type=self.hand_type, hand_joint=self.hand_joint,modbus=self.modbus,can=self.can)
++        self.api = LinkerHandApi(
++            hand_type=self.hand_type,
++            hand_joint=self.hand_joint,
++            modbus=self.modbus,
++            can=self.can,
++            read_device_info=self.read_device_info,
++        )
+         time.sleep(0.1)
+         self.touch_type = self.api.get_touch_type()
+         self.hand_cmd_sub = self.create_subscription(JointState, f'/cb_{self.hand_type}_hand_control_cmd', self.hand_control_cb,10)
+@@ -121,7 +131,9 @@ class LinkerHand(Node):
+                 ColorMsg(msg=f"{self.hand_type} {self.hand_joint} Not equipped with any pressure sensors", color="red")
+                 self.is_touch = False
+
+-        self.embedded_version = self.api.get_embedded_version()
++        self.embedded_version = (
++            self.api.get_embedded_version() if self.read_device_info else []
++        )
+         pose = None
+         torque = [200, 200, 200, 200, 200]
+         speed = [200, 250, 250, 250, 250]
+@@ -145,7 +157,7 @@ class LinkerHand(Node):
+             pose = [75, 255, 255, 255, 255, 176, 97, 81, 114, 147, 202, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]
+         elif self.hand_joint == "L25":
+             pose = [75, 255, 255, 255, 255, 176, 97, 81, 114, 147, 202, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]
+-        if pose is not None:
++        if pose is not None and self.initialize_pose:
+             self.api.set_speed(speed=speed)
+             time.sleep(0.1)
+             self.api.set_torque(torque=torque)
+diff --git a/linker_hand_ros2_sdk/package.xml b/linker_hand_ros2_sdk/package.xml
+index 665b626..5df88e5 100644
+--- a/linker_hand_ros2_sdk/package.xml
++++ b/linker_hand_ros2_sdk/package.xml
+@@ -14,6 +14,8 @@
+
+   <exec_depend>rclpy</exec_depend>
+   <exec_depend>launch</exec_depend>
++  <exec_depend>python3-can</exec_depend>
++  <exec_depend>python3-serial</exec_depend>
+
+   <export>
+     <build_type>ament_python</build_type>
+diff --git a/linker_hand_ros2_sdk/setup.py b/linker_hand_ros2_sdk/setup.py
+index debd304..4dc9136 100644
+--- a/linker_hand_ros2_sdk/setup.py
++++ b/linker_hand_ros2_sdk/setup.py
+@@ -31,7 +31,7 @@ setup(
+     version='0.0.0',
+     packages=find_packages(include=[package_name, f"{package_name}.*"]),
+     data_files=data_files,
+-    install_requires=['setuptools'],
++    install_requires=['setuptools', 'pymodbus==3.5.1', 'pyserial>=3.5'],
+     zip_safe=True,
+     maintainer='linker-robot',
+     maintainer_email='linker-robot@todo.todo',
