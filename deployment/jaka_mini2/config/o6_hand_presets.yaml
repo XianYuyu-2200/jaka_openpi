@@ -5,23 +5,23 @@ presets:
   "1":
     name: open
     description: "手掌张开"
-    target: null
+    target: [254, 255, 254, 254, 254, 254]
   "2":
     name: grasp_cup
     description: "抓杯"
-    target: null
+    target: [170, 100, 155, 150, 150, 140]
   "3":
     name: press_button
     description: "按咖啡机按钮"
-    target: null
+    target: [10, 100, 250, 50 ,50, 50]
   "4":
     name: handover_hold
     description: "递杯保持"
-    target: null
+    target: [170, 100, 155, 150, 150, 140]
   "5":
     name: release
     description: "松杯"
-    target: null
+    target: [254, 255, 254, 254, 254, 254]
   space:
     name: hold_current
     description: "保持当前手型（按下时锁存真实反馈）"

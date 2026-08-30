@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import pathlib
-
 import pytest
 
 from deployment.jaka_mini2.runtime.hand_presets import HandPreset
 from deployment.jaka_mini2.runtime.hand_presets import HandPresetState
-from deployment.jaka_mini2.runtime.hand_presets import load_hand_presets
 
 
 def test_uncalibrated_preset_is_rejected() -> None:
-    state = HandPresetState({"1": load_hand_presets(pathlib.Path("deployment/jaka_mini2/config/o6_hand_presets.yaml"))["1"]})
+    state = HandPresetState({"1": HandPreset("1", "open", None)})
     with pytest.raises(ValueError, match="not calibrated"):
         state.select("1")
 
