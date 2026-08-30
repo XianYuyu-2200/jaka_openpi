@@ -42,10 +42,9 @@ requires the target TCP position computed by forward kinematics. If target FK
 is unavailable, workspace validation rejects the action instead of bypassing
 the check.
 
-The default runtime mode is non-writing. Hardware motion requires both a
-backend constructed with motion permission and the exact runtime confirmation
-`ENABLE_POLICY_CONTROL`. It is additionally blocked until the O6 state source
-has passed the real RS485 read-only validation.
+The default runtime mode is non-writing. The right O6 state source has passed
+real FC04 validation through JAKA TIO RS485-1. Hardware motion remains blocked
+because the O6 write path has not yet been commissioned.
 
 ## Offline verification
 
@@ -111,10 +110,10 @@ hardware using:
   --max-episode-steps 10
 ```
 
-`read_only` opens the JAKA state/FK backend and both cameras but validates each
-policy action without sending it. `hardware` remains intentionally unusable
-while `run_policy_client.py` supplies `UnavailableHand(state_verified=False)`.
-Do not replace that gate until the RS485 state verification is complete.
+`read_only` opens the JAKA state/FK backend, reads the right O6 through the JAKA
+TIO signal cache, and captures both cameras without sending actions.
+`hardware` remains intentionally unusable until the O6 FC16 write path has a
+separate low-risk commissioning procedure and explicit operator approval.
 
 ## Dataset and training
 
@@ -151,16 +150,17 @@ The model keeps the pretrained π0.5 width of 32 and pads the 12-D state/action
 internally. Only the first 12 output dimensions are exposed to the robot. Arm
 J1-J6 are converted to delta targets for training; O6 J1-J6 stay absolute.
 
-## Hardware gates still closed
+## Hardware status and remaining gates
 
-- O6 `/cb_left_hand_state` must be verified read-only over the actual RS485
-  device path. Do not publish the hand control topic during this check.
+- Right O6 FC04 registers 0-5 are verified through JAKA TIO RS485-1, tool pins
+  4/5, slave 39. The runtime reads `o6_r_pos0` through `o6_r_pos5` and reports
+  `hand_state_valid=True`.
 - Camera serial binding, RGB order, true color delivery at 1280x800@30 and
   cross-device pairing below 20 ms are confirmed with the official SDK.
 - Controller joint limits, application velocity limits and the P1-P11 TCP
   workspace remain marked unconfirmed in `robot_config.yaml`.
-- The O6 ROS2 state/command backend is deliberately not connected to the
-  policy runtime until the first RS485 read-only validation is complete.
+- O6 writes remain disabled. Do not send FC16 or enable policy hardware mode
+  until a supervised small-motion commissioning test is explicitly approved.
 
 ## Directory map
 
