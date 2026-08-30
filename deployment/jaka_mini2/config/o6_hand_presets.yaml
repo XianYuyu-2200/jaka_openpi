@@ -1,0 +1,29 @@
+# Calibrate these values before real O6 recording.
+# Values are native O6 device positions, six channels, each in 0..255.
+# They are not JAKA arm joint angles and are not sent by the preview tool.
+presets:
+  "1":
+    name: open
+    description: "手掌张开"
+    target: null
+  "2":
+    name: grasp_cup
+    description: "抓杯"
+    target: null
+  "3":
+    name: press_button
+    description: "按咖啡机按钮"
+    target: null
+  "4":
+    name: handover_hold
+    description: "递杯保持"
+    target: null
+  "5":
+    name: release
+    description: "松杯"
+    target: null
+  space:
+    name: hold_current
+    description: "保持当前手型（按下时锁存真实反馈）"
+    target: null
+

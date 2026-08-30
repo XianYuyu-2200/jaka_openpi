@@ -136,6 +136,24 @@ separate low-risk commissioning procedure and explicit operator approval.
 
 ## Dataset and training
 
+### Keyboard O6 demonstration labels
+
+The first collection-stage tool is intentionally read-only. It reads the real
+`.102` arm and O6 state at about 5 Hz and logs keyboard-selected O6 targets to
+`local_runtime/logs/o6_keyboard_events.jsonl`. It contains no FC16 call and
+does not create a training episode.
+
+```bash
+.venv/bin/python -m deployment.jaka_mini2.preview_o6_keyboard
+```
+
+Keys `1` through `5` select the configured hand poses, Space latches the
+current real O6 state as a hold target, and `q` exits. The poses are six native
+O6 device positions in `0..255`, not JAKA arm joint angles. Configure them in
+`config/o6_hand_presets.yaml`. Uncalibrated (`null`) poses are rejected. Real
+O6 commands remain disabled until a separate supervised FC16 small-motion
+commissioning procedure is approved.
+
 `runtime/recording.py` defines the LeRobot schema and the episode admission
 rule. Frames contain:
 
