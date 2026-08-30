@@ -1,6 +1,7 @@
 #include "jaka_arm_backend.hpp"
 
 #include <array>
+#include <cstdint>
 #include <cstring>
 
 namespace jaka_mini2 {
@@ -95,6 +96,32 @@ int JakaArmBackend::read_o6_state(HandState* state) {
     for (bool present : found) if (!present) return -4;
     state->verified = true;
     return 0;
+}
+
+int JakaArmBackend::send_o6_position_direct(const HandState& target) {
+    if (!connected_) return -1;
+    std::array<std::uint8_t, 21> frame{
+        0x27, 0x10, 0x00, 0x00, 0x00, 0x06, 0x0C,
+    };
+    for (int index = 0; index < 6; ++index) {
+        const double value = target.position[index];
+        if (value < 0.0 || value > 255.0) return -2;
+        const int integer = static_cast<int>(value);
+        if (value != static_cast<double>(integer)) return -3;
+        frame[7 + index * 2] = 0x00;
+        frame[8 + index * 2] = static_cast<std::uint8_t>(integer);
+    }
+    std::uint16_t crc = 0xFFFF;
+    for (std::size_t i = 0; i < 19; ++i) {
+        crc ^= frame[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc & 1) != 0 ? static_cast<std::uint16_t>((crc >> 1) ^ 0xA001)
+                                  : static_cast<std::uint16_t>(crc >> 1);
+        }
+    }
+    frame[19] = static_cast<std::uint8_t>(crc & 0xFF);
+    frame[20] = static_cast<std::uint8_t>((crc >> 8) & 0xFF);
+    return robot_.send_tio_rs_command(0, frame.data(), static_cast<int>(frame.size()));
 }
 
 }  // namespace jaka_mini2

@@ -42,6 +42,7 @@ public:
     int send_servo_j(const ArmState& target);
     int stop();
     int read_o6_state(HandState* state);
+    int send_o6_position_direct(const HandState& target);
 
     bool connected() const { return connected_; }
     bool motion_armed() const { return motion_armed_; }

@@ -165,6 +165,16 @@ it does not enable JAKA arm servo mode:
 
 The live probe completed with channel 0 `254 -> 249 -> 254`.
 
+For direct manual preset testing, rebuild the hardware backend and run:
+
+```bash
+.venv/bin/python -m deployment.jaka_mini2.control_o6_keyboard_direct
+```
+
+Keys `1` through `5` each send one FC16 frame containing the configured six
+position values. There is no interpolation and no automatic restore. Press
+`q` to exit. This path remains separate from OpenPI policy execution.
+
 `runtime/recording.py` defines the LeRobot schema and the episode admission
 rule. Frames contain:
 

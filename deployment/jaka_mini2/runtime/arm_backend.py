@@ -51,6 +51,8 @@ class JakaArmBackend:
         self._lib.jaka_arm_send_servo_j.argtypes = [ctypes.c_void_p, double6]
         self._lib.jaka_o6_read_state.argtypes = [ctypes.c_void_p, double6]
         self._lib.jaka_o6_read_state.restype = ctypes.c_int
+        self._lib.jaka_o6_send_position_direct.argtypes = [ctypes.c_void_p, double6]
+        self._lib.jaka_o6_send_position_direct.restype = ctypes.c_int
 
     @staticmethod
     def _check(result: int, operation: str) -> None:
@@ -97,6 +99,13 @@ class JakaArmBackend:
         values = (ctypes.c_double * 6)()
         self._check(self._lib.jaka_o6_read_state(self._handle, values), "read_o6_state")
         return tuple(values)
+
+    def send_o6_position_direct(self, target: tuple[float, ...]) -> None:
+        """Immediately write all six O6 position registers with one FC16 frame."""
+        if len(target) != 6:
+            raise ValueError("O6 target must contain six values")
+        values = (ctypes.c_double * 6)(*target)
+        self._check(self._lib.jaka_o6_send_position_direct(self._handle, values), "o6_fc16_direct")
 
     def close(self) -> None:
         if not self._handle:

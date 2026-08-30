@@ -85,4 +85,11 @@ int jaka_o6_read_state(void* handle, double hand_position[6]) {
     return result;
 }
 
+int jaka_o6_send_position_direct(void* handle, const double hand_position[6]) {
+    if (handle == nullptr || hand_position == nullptr) return -1;
+    jaka_mini2::HandState target{};
+    for (int index = 0; index < 6; ++index) target.position[index] = hand_position[index];
+    return backend(handle)->send_o6_position_direct(target);
+}
+
 }  // extern "C"
