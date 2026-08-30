@@ -60,9 +60,8 @@ class FakeDataset:
 def make_observation(*, hand_state_valid: bool) -> dict[str, Any]:
     image = np.zeros((8, 8, 3), dtype=np.uint8)
     return {
-        "observation/state": np.asarray([0.0] * 6 + [100.0] * 6),
-        "observation/base_0_rgb": image,
-        "observation/left_wrist_0_rgb": image.copy(),
+        "state": np.asarray([0.0] * 6 + [100.0] * 6),
+        "image": {"base_0_rgb": image, "left_wrist_0_rgb": image.copy()},
         "hand_state_valid": hand_state_valid,
     }
 
@@ -117,7 +116,7 @@ def test_unsuccessful_episode_is_excluded(tmp_path: pathlib.Path, status: str) -
 def test_invalid_frame_dimensions_are_rejected(tmp_path: pathlib.Path, state: np.ndarray, action: np.ndarray) -> None:
     recorder, dataset, _ = make_recorder(tmp_path)
     observation = make_observation(hand_state_valid=True)
-    observation["observation/state"] = state
+    observation["state"] = state
 
     with pytest.raises(ValueError, match=r"shape \(12,\)"):
         recorder.add_frame(observation, action, 1.25)

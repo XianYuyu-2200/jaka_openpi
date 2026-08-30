@@ -32,8 +32,8 @@ def test_build_observation_requires_both_camera_roles() -> None:
         {"base_0_rgb": "external", "left_wrist_0_rgb": "wrist"},
         "拿起水杯",
     )
-    assert len(observation["observation/state"]) == 12
-    assert observation["observation/base_0_rgb"] == "external"
+    assert len(observation["state"]) == 12
+    assert observation["image"]["base_0_rgb"] == "external"
     with pytest.raises(ValueError, match="left_wrist_0_rgb"):
         build_observation([0] * 6, [0] * 6, {"base_0_rgb": object()}, "test")
 

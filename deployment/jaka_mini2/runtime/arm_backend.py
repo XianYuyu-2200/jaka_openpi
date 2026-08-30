@@ -101,7 +101,10 @@ class JakaArmBackend:
     def close(self) -> None:
         if not self._handle:
             return
-        self.stop()
+        # A read-only backend is never armed, so disconnect without issuing a
+        # controller stop command.  Hardware mode still stops before teardown.
+        if self._armed:
+            self.stop()
         if self._connected:
             self._lib.jaka_arm_disconnect(self._handle)
         self._lib.jaka_arm_destroy(self._handle)

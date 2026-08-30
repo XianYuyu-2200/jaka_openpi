@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import pathlib
 
 from openpi_client import action_chunk_broker
@@ -80,6 +81,7 @@ def main(args: Args) -> None:
             motion_confirmation=args.motion_confirmation,
         )
         policy = websocket_client_policy.WebsocketClientPolicy(host=args.host, port=args.port)
+        logging.info("Policy server metadata: %s", policy.get_server_metadata())
         agent = policy_agent.PolicyAgent(action_chunk_broker.ActionChunkBroker(policy, action_horizon=16))
         runtime.Runtime(
             environment=environment,
@@ -97,4 +99,5 @@ def main(args: Args) -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, force=True)
     main(tyro.cli(Args))

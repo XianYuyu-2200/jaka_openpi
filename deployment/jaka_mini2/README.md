@@ -101,8 +101,27 @@ strict diagnostic fallback.
 
 ## Policy runtime
 
-Start the policy server in another terminal, then exercise the client without
-hardware using:
+Before a robot-specific trained checkpoint exists, the complete real-input
+WebSocket and safety path can be verified with the observation echo policy.
+It validates the real 12-D state and both RGB frames, then returns the current
+state as an absolute action. In `read_only` the action is checked and discarded;
+no arm command and no O6 FC16 write is sent.
+
+Terminal 1:
+
+```bash
+.venv/bin/python -m deployment.jaka_mini2.serve_read_only_echo_policy
+```
+
+Terminal 2:
+
+```bash
+.venv/bin/python -m deployment.jaka_mini2.run_policy_client \
+  --mode read_only \
+  --max-episode-steps 3
+```
+
+For a software-only check, use:
 
 ```bash
 .venv/bin/python -m deployment.jaka_mini2.run_policy_client \

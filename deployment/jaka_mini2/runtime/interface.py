@@ -47,11 +47,14 @@ def build_observation(
     missing = required.difference(images)
     if missing:
         raise ValueError(f"missing required camera streams: {sorted(missing)}")
+    # Policy inference consumes the canonical OpenPI model input contract:
+    # ``state`` and a nested ``image`` mapping.  LeRobot feature names are
+    # handled separately by the dataset repack transform.
     return {
-        "observation/state": state,
-        "observation/joint_position": tuple(state[:ARM_DOF]),
-        "observation/gripper_position": tuple(state[ARM_DOF:]),
-        "observation/base_0_rgb": images["base_0_rgb"],
-        "observation/left_wrist_0_rgb": images["left_wrist_0_rgb"],
+        "state": state,
+        "image": {
+            "base_0_rgb": images["base_0_rgb"],
+            "left_wrist_0_rgb": images["left_wrist_0_rgb"],
+        },
         "prompt": prompt,
     }

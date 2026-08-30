@@ -54,7 +54,7 @@ class EpisodeRecorder:
         self._last_capture_timestamp_s: float | None = None
 
     def add_frame(self, observation: dict[str, Any], action: Any, timestamp_s: float) -> None:
-        state = np.asarray(observation["observation/state"], dtype=np.float32)
+        state = np.asarray(observation["state"], dtype=np.float32)
         action_array = np.asarray(action, dtype=np.float32)
         if state.shape != (12,) or action_array.shape != (12,):
             raise ValueError("JAKA/O6 dataset frames require state and action shape (12,)")
@@ -63,12 +63,12 @@ class EpisodeRecorder:
             raise ValueError("capture timestamp must be finite")
         if self._last_capture_timestamp_s is not None and capture_timestamp_s <= self._last_capture_timestamp_s:
             raise ValueError("capture timestamps must increase monotonically")
-        images = observation
+        images = observation["image"]
         self.dataset.add_frame(
             {
-                "observation.images.base_0_rgb": np.asarray(images["observation/base_0_rgb"], dtype=np.uint8),
+                "observation.images.base_0_rgb": np.asarray(images["base_0_rgb"], dtype=np.uint8),
                 "observation.images.left_wrist_0_rgb": np.asarray(
-                    images["observation/left_wrist_0_rgb"], dtype=np.uint8
+                    images["left_wrist_0_rgb"], dtype=np.uint8
                 ),
                 "observation.state": state,
                 "action": action_array,

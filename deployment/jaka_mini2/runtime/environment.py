@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import contextlib
+import logging
 import time
 from typing import Any, Literal, Protocol
 
@@ -20,6 +21,8 @@ from deployment.jaka_mini2.safety.envelope import default_envelope
 from .command_plan import prepare_command
 from .interface import build_observation
 from .policy_adapter import extract_action_chunk
+
+logger = logging.getLogger(__name__)
 
 
 class ArmSource(Protocol):
@@ -118,6 +121,9 @@ class OpenPiJakaEnvironment(Environment):
                 interpolation_steps=self.interpolation_steps,
             )
             if self.mode == "read_only":
+                logger.info(
+                    "read_only safety validation passed; action discarded (arm/O6 writes disabled)"
+                )
                 return
             if self.mode == "mock":
                 self._last_arm = plan.arm_servo_targets[-1]
