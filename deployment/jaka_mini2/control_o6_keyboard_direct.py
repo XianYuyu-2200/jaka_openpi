@@ -8,6 +8,7 @@ interpolation and no automatic return to the previous pose.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import pathlib
 import sys
@@ -28,6 +29,7 @@ def main() -> None:
         type=pathlib.Path,
         default=pathlib.Path("/tmp/jaka_mini2_adapter-hardware/libjaka_arm_c_api.so"),
     )
+    parser.add_argument("--event-log", type=pathlib.Path)
     parser.add_argument("--arm-ip", default="192.168.0.102")
     parser.add_argument(
         "--preset-config",
@@ -41,6 +43,10 @@ def main() -> None:
     arm.connect()
     old_settings = termios.tcgetattr(sys.stdin)
     tty.setcbreak(sys.stdin.fileno())
+    event_log = None
+    if args.event_log is not None:
+        args.event_log.parent.mkdir(parents=True, exist_ok=True)
+        event_log = args.event_log.open("a", encoding="utf-8")
     LOGGER.info("DIRECT O6 control: 1-5 send preset immediately; q quits")
     try:
         while True:
@@ -56,8 +62,26 @@ def main() -> None:
             time.sleep(0.3)
             after = arm.read_o6_state()
             LOGGER.info("sent %s (%s): %s; feedback %s -> %s", key, preset.name, preset.target, before, after)
+            if event_log is not None:
+                event_log.write(
+                    json.dumps(
+                        {
+                            "timestamp_ns": time.time_ns(),
+                            "key": key,
+                            "preset": preset.name,
+                            "target": list(preset.target),
+                            "before": list(before),
+                            "feedback": list(after),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+                event_log.flush()
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        if event_log is not None:
+            event_log.close()
         arm.close()
 
 

@@ -236,6 +236,21 @@ Keys `1` through `5` each send one FC16 frame containing the configured six
 position values. There is no interpolation and no automatic restore. Press
 `q` to exit. This path remains separate from OpenPI policy execution.
 
+### Combined teleoperation and O6 practice
+
+Use the combined practice launcher to continuously teleoperate `.102` from
+`.101` while keys `1` through `5` command the real O6 hand:
+
+```bash
+deployment/jaka_mini2/run_teleop_o6_practice.sh lpf 1.0
+```
+
+The arm processes run without a duration limit. Press `q` in the foreground
+keyboard controller (or `Ctrl+C`) to stop the O6 controller and both arm
+processes together. Each hand key event is appended to
+`local_runtime/logs/o6_practice_events.jsonl` for workflow review; this is a
+practice log, not a formal LeRobot episode.
+
 `runtime/recording.py` defines the LeRobot schema and the episode admission
 rule. Frames contain:
 
