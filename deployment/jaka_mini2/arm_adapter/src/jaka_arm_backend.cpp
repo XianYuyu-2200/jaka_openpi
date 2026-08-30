@@ -1,5 +1,8 @@
 #include "jaka_arm_backend.hpp"
 
+#include <array>
+#include <cstring>
+
 namespace jaka_mini2 {
 
 JakaArmBackend::JakaArmBackend(std::string robot_ip, bool allow_motion)
@@ -69,6 +72,29 @@ int JakaArmBackend::send_servo_j(const ArmState& target) {
 
 int JakaArmBackend::stop() {
     return disarm_motion();
+}
+
+int JakaArmBackend::read_o6_state(HandState* state) {
+    if (!connected_ || state == nullptr) return -1;
+    std::array<SignInfo, 64> signals{};
+    int count = static_cast<int>(signals.size());
+    const int result = robot_.get_rs485_signal_info(signals.data(), &count);
+    if (result != 0 || count < 6 || count > static_cast<int>(signals.size())) return result != 0 ? result : -2;
+    constexpr std::array<const char*, 6> names = {"o6_r_pos0", "o6_r_pos1", "o6_r_pos2", "o6_r_pos3", "o6_r_pos4", "o6_r_pos5"};
+    std::array<bool, 6> found{};
+    for (int i = 0; i < count; ++i) {
+        signals[i].sig_name[sizeof(signals[i].sig_name) - 1] = '\0';
+        for (int j = 0; j < 6; ++j) {
+            if (std::strcmp(signals[i].sig_name, names[j]) == 0 && signals[i].chn_id == 0 && signals[i].sig_type == 4 && signals[i].sig_addr == j) {
+                if (signals[i].value < 0 || signals[i].value > 255) return -3;
+                state->position[j] = static_cast<double>(signals[i].value);
+                found[j] = true;
+            }
+        }
+    }
+    for (bool present : found) if (!present) return -4;
+    state->verified = true;
+    return 0;
 }
 
 }  // namespace jaka_mini2

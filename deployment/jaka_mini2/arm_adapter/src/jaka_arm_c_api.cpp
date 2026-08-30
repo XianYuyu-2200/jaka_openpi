@@ -75,4 +75,14 @@ int jaka_arm_stop(void* handle) {
     return handle == nullptr ? -1 : backend(handle)->stop();
 }
 
+int jaka_o6_read_state(void* handle, double hand_position[6]) {
+    if (handle == nullptr || hand_position == nullptr) return -1;
+    jaka_mini2::HandState state{};
+    const int result = backend(handle)->read_o6_state(&state);
+    if (result == 0 && state.verified) {
+        for (int index = 0; index < 6; ++index) hand_position[index] = state.position[index];
+    }
+    return result;
+}
+
 }  // extern "C"

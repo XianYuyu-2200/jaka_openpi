@@ -49,6 +49,8 @@ class JakaArmBackend:
         self._lib.jaka_arm_read_state.argtypes = [ctypes.c_void_p, double6]
         self._lib.jaka_arm_forward_kinematics.argtypes = [ctypes.c_void_p, double6, double6]
         self._lib.jaka_arm_send_servo_j.argtypes = [ctypes.c_void_p, double6]
+        self._lib.jaka_o6_read_state.argtypes = [ctypes.c_void_p, double6]
+        self._lib.jaka_o6_read_state.restype = ctypes.c_int
 
     @staticmethod
     def _check(result: int, operation: str) -> None:
@@ -90,6 +92,11 @@ class JakaArmBackend:
         if self._handle:
             self._lib.jaka_arm_stop(self._handle)
         self._armed = False
+
+    def read_o6_state(self) -> tuple[float, ...]:
+        values = (ctypes.c_double * 6)()
+        self._check(self._lib.jaka_o6_read_state(self._handle, values), "read_o6_state")
+        return tuple(values)
 
     def close(self) -> None:
         if not self._handle:

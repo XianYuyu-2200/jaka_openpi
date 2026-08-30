@@ -17,6 +17,11 @@ struct TcpPose {
     std::array<double, 3> rpy_rad{};
 };
 
+struct HandState {
+    std::array<double, 6> position{};
+    bool verified{false};
+};
+
 class JakaArmBackend {
 public:
     explicit JakaArmBackend(std::string robot_ip, bool allow_motion = false);
@@ -36,6 +41,7 @@ public:
     int disarm_motion();
     int send_servo_j(const ArmState& target);
     int stop();
+    int read_o6_state(HandState* state);
 
     bool connected() const { return connected_; }
     bool motion_armed() const { return motion_armed_; }

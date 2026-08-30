@@ -131,23 +131,27 @@ Z: [43.48, 490.15] mm
 
 ## Linker Hand O6 通信方式
 
-当前 O6 配置采用 USB-RS485 转换器连接，协议为 Modbus RTU，不使用 `can0`：
+当前右手 O6 通过 JAKA Mini2 工具端 TIO 的 RS485 通道 1 连接，协议为
+Modbus RTU，不使用 USB-RS485 或 `can0`：
 
 ```yaml
-hand_joint: O6
-modbus: /dev/ttyUSB0
+hand_joint: O6 right
+transport: JAKA TIO RS485-1
+tool_pins: 4=A+, 5=B-
 baudrate: 115200
 serial: 8N1, no parity
-slave_id: 0x28  # 左手，十进制 40
+slave_id: 0x27  # 右手，十进制 39
 ```
 
 协议依据仓库根目录的
 `O6机械手485协议简要说明_1783907046316.xlsx`：功能码 `04` 用于读取输入寄存器，
 功能码 `16` 用于写保持寄存器；位置寄存器为 `0–5`，数值范围为 `0–255`。
-实际接入后应把 `/dev/ttyUSB0` 替换成系统枚举出的真实设备路径。
+首次只读验证已通过：JAKA TIO 的 FC04 输入寄存器 `0–5` 连续返回
+`[254, 255, 254, 254, 254, 254]`。控制器中保存的只读信号量名称为
+`o6_r_pos0` 至 `o6_r_pos5`，刷新频率为 5 Hz。
 
-目前启动配置将 `initialize_pose` 和 `read_device_info` 设为 `false`：首次接入
-只验证状态话题，不自动发送初始手型，也不读取 Excel 未明确覆盖的扩展设备信息区。
+目前启动配置将 `initialize_pose` 和 `read_device_info` 设为 `false`，并保持
+O6 写路径关闭：不自动发送初始手型，也不读取 Excel 未明确覆盖的扩展设备信息区。
 压感扩展暂不作为 OpenPI 状态输入，待现场确认固件寄存器后再启用。
 
 ## 部署自训练 checkpoint

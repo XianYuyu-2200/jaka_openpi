@@ -20,7 +20,7 @@ robot:
     operator_robot_ip: "192.168.0.101"
     follower_robot_ip: "192.168.0.102"
     arm_ros_used: false
-    hand_ros_used: true
+    hand_ros_used: false
     hand_ros_version: 2
 
 runtime:
@@ -151,26 +151,35 @@ gripper:
   device: "Linker Hand O6"
   native_dimension: 6
   transport:
-    type: "RS485"
-    protocol: "Modbus RTU"
-    port: "/dev/ttyUSB0"
+    type: "JAKA TIO RS485"
+    protocol: "Modbus RTU via JAKA controller"
+    port: "TIO RS485-1 (tool pins 4/5)"
     baudrate: 115200
     bytesize: 8
     parity: "N"
     stopbits: 1
-    slave_id: 40 # 左手 0x28；右手为 0x27
+    slave_id: 39 # 右手 0x27；左手为 0x28
     function_codes:
       read_input_registers: 4
       write_holding_registers: 16
     protocol_source: "O6机械手485协议简要说明_1783907046316.xlsx"
-    device_path_confirmed: false
-    hardware_communication_verified: false
+    device_path_confirmed: true
+    hardware_communication_verified: true
     base_registers_0_29_confirmed: true
     extended_device_info_registers_confirmed: false
     pressure_registers_confirmed: false
     initialize_pose_on_startup: false
   state:
-    topic: "/cb_left_hand_state"
+    source: "JAKA TIO RS485 signal cache"
+    signal_names:
+      - "o6_r_pos0"
+      - "o6_r_pos1"
+      - "o6_r_pos2"
+      - "o6_r_pos3"
+      - "o6_r_pos4"
+      - "o6_r_pos5"
+    topic: null
+    candidate_ros_topic: "/cb_right_hand_state"
     topic_mode: "device_position"
     message_type: "sensor_msgs/msg/JointState"
     field: "position"
@@ -179,9 +188,8 @@ gripper:
     arc_topic_used: false
   command:
     candidate_topics:
-      - "/cb_left_hand_control_cmd"
       - "/cb_right_hand_control_cmd"
-    selected_topic: "/cb_left_hand_control_cmd"
+    selected_topic: "/cb_right_hand_control_cmd"
     topic_mode: "device_position"
     message_type: "sensor_msgs/msg/JointState"
     field: "position"

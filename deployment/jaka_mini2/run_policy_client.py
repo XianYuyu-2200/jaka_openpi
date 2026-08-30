@@ -32,11 +32,23 @@ class Args:
     motion_confirmation: str | None = None
 
 
-class UnavailableHand(MockHand):
-    """Explicit placeholder until the O6 RS485 read-only check passes."""
+class JakaTioHand:
+    """Read-only O6 state via JAKA TIO RS485 signal cache.
 
-    def __init__(self) -> None:
-        super().__init__(state_verified=False)
+    The write side intentionally raises: O6 commands remain disabled during
+    commissioning even after FC04 state verification succeeds.
+    """
+
+    state_verified = True
+
+    def __init__(self, arm: JakaArmBackend) -> None:
+        self.arm = arm
+
+    def read(self) -> tuple[float, ...]:
+        return self.arm.read_o6_state()
+
+    def send_position(self, target: tuple[float, ...]) -> None:
+        raise PermissionError("O6 write path is disabled; JAKA TIO adapter is read-only")
 
 
 def make_cameras(library: pathlib.Path) -> OrbbecDualCameraCapture:
@@ -48,17 +60,17 @@ def main(args: Args) -> None:
         raise ValueError("mode must be mock, read_only, or hardware")
     if args.mode == "mock":
         arm = MockArm()
-        hand = UnavailableHand()
+        hand = MockHand(state_verified=False)
         cameras = MockCameras()
     else:
         arm = JakaArmBackend(args.arm_library, args.arm_ip, allow_motion=args.mode == "hardware")
         arm.connect()
-        hand = UnavailableHand()
+        hand = JakaTioHand(arm)
         cameras = make_cameras(args.camera_library)
         cameras.open()
     try:
-        if args.mode == "hardware" and not hand.state_verified:
-            raise RuntimeError("hardware mode is blocked until the O6 state source is verified")
+        if args.mode == "hardware":
+            raise RuntimeError("hardware mode remains disabled while the O6 write path is read-only")
         environment = OpenPiJakaEnvironment(
             arm,
             hand,
