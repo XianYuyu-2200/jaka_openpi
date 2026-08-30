@@ -12,6 +12,7 @@ using jaka_dry_run::LoopTimingMetrics;
 using jaka_dry_run::RelativeMapper;
 using jaka_dry_run::ReadinessGate;
 using jaka_dry_run::StatusPollScheduler;
+using jaka_dry_run::TargetSmoother;
 using jaka_dry_run::Watchdog;
 using jaka_dry_run::WatchdogState;
 
@@ -75,6 +76,29 @@ int main() {
     for (std::size_t i = 0; i < 6; ++i) {
         assert(close_enough(target[i], expected[i]));
     }
+
+    TargetSmoother smoother(0.5, 0.1);
+    smoother.reset(JointArray{0, 0, 0, 0, 0, 0});
+    assert(smoother.initialized());
+    const JointArray smooth_step = smoother.update(
+        JointArray{1, -1, 0.1, -0.1, 0.05, -0.05});
+    const JointArray smooth_expected{0.1, -0.1, 0.05, -0.05, 0.025, -0.025};
+    for (std::size_t i = 0; i < 6; ++i) {
+        assert(close_enough(smooth_step[i], smooth_expected[i]));
+    }
+    const JointArray held = smoother.update(smooth_step);
+    for (std::size_t i = 0; i < 6; ++i) {
+        assert(close_enough(held[i], smooth_step[i]));
+    }
+
+    bool rejected_bad_smoother = false;
+    try {
+        TargetSmoother bad_smoother(0.0, 0.1);
+        (void)bad_smoother;
+    } catch (const std::invalid_argument&) {
+        rejected_bad_smoother = true;
+    }
+    assert(rejected_bad_smoother);
 
     Watchdog watchdog;
     assert(watchdog.update(0, 0, true, 0) == WatchdogState::Waiting);

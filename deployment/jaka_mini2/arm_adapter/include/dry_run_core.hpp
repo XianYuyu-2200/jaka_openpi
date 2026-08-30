@@ -67,6 +67,86 @@ private:
     bool armed_{false};
 };
 
+// Limits the per-cycle change of a servo target.  The follower runs at the
+// robot's 8 ms interpolation period, so this provides a deterministic first
+// order filter even when IPC packets arrive with jitter.
+class TargetSmoother {
+public:
+    TargetSmoother(
+        double alpha = 0.70,
+        JointArray max_step_rad = {0.004, 0.004, 0.004,
+                                   0.0028, 0.0028, 0.0028},
+        JointArray max_accel_step_rad = {0.0025, 0.0025, 0.0025,
+                                         0.0018, 0.0018, 0.0018})
+        : alpha_(alpha),
+          max_step_rad_(max_step_rad),
+          max_accel_step_rad_(max_accel_step_rad) {
+        if (!(alpha_ > 0.0 && alpha_ <= 1.0)) {
+            throw std::invalid_argument("invalid target smoother parameters");
+        }
+        for (const double max_step : max_step_rad_) {
+            if (max_step < 0.0) {
+                throw std::invalid_argument("invalid target smoother parameters");
+            }
+        }
+        for (const double max_accel_step : max_accel_step_rad_) {
+            if (max_accel_step < 0.0) {
+                throw std::invalid_argument("invalid target smoother parameters");
+            }
+        }
+    }
+
+    TargetSmoother(double alpha, double max_step_rad)
+        : TargetSmoother(alpha, JointArray{max_step_rad, max_step_rad,
+                                           max_step_rad, max_step_rad,
+                                           max_step_rad, max_step_rad},
+                               JointArray{max_step_rad, max_step_rad,
+                                          max_step_rad, max_step_rad,
+                                          max_step_rad, max_step_rad}) {
+    }
+
+    void reset(const JointArray& value) {
+        value_ = value;
+        last_step_.fill(0.0);
+        initialized_ = true;
+    }
+
+    bool initialized() const {
+        return initialized_;
+    }
+
+    const JointArray& value() const {
+        return value_;
+    }
+
+    JointArray update(const JointArray& target) {
+        if (!initialized_) {
+            reset(target);
+            return value_;
+        }
+        for (std::size_t i = 0; i < 6; ++i) {
+            const double filtered = value_[i] + alpha_ * (target[i] - value_[i]);
+            const double limited = std::clamp(filtered - value_[i],
+                                              -max_step_rad_[i], max_step_rad_[i]);
+            const double delta = std::clamp(
+                limited,
+                last_step_[i] - max_accel_step_rad_[i],
+                last_step_[i] + max_accel_step_rad_[i]);
+            value_[i] += delta;
+            last_step_[i] = delta;
+        }
+        return value_;
+    }
+
+private:
+    double alpha_;
+    JointArray max_step_rad_;
+    JointArray max_accel_step_rad_;
+    JointArray value_{};
+    JointArray last_step_{};
+    bool initialized_{false};
+};
+
 enum class WatchdogState {
     Waiting,
     Fresh,

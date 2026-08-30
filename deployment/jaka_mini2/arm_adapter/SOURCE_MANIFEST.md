@@ -1,11 +1,12 @@
 # Migrated JAKA source manifest
 
-The files below were copied without modification from
-`~/codex/codex-jaka_mini_2/jaka_dual_readonly` on 2026-08-29. The source
-repository was left untouched. Compiled binaries, logs, caches and legacy
-revisions were deliberately excluded.
+The files below were initially copied from
+`~/codex/codex-jaka_mini_2/jaka_dual_readonly` on 2026-08-29. The hashes record
+that original source snapshot; integration files may subsequently be improved
+in this repository. The source repository was left untouched. Compiled
+binaries, logs, caches and legacy revisions were deliberately excluded.
 
-| Destination | Source SHA-256 |
+| Destination | Original source SHA-256 |
 | --- | --- |
 | `include/dry_run_core.hpp` | `c41590c8433f2cb5224ea12fef42afc9692cc62eaa9b41dc8a3f62502423e891` |
 | `include/joint_sample_ipc.hpp` | `99ad58bb756fe991ebb66bbfdd776041e42cb5e10a7f800cc95d72a67e3de1bd` |

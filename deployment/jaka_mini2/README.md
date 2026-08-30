@@ -71,9 +71,70 @@ cmake --build /tmp/jaka_mini2_adapter-hardware
 ctest --test-dir /tmp/jaka_mini2_adapter-hardware --output-on-failure
 ```
 
-Building does not execute any robot command. Do not run
-`six_joint_follow_test` during OpenPI integration; it is retained only as the
-verified commissioning reference and still consumes operator-arm IPC input.
+Building does not execute any robot command. The commissioning follower now
+uses a fixed 125 Hz servo clock, latest-sample reception, low-pass and
+acceleration limiting, the native one-cycle (`8 ms`) JAKA interpolation horizon, a
+40 ms packet hold threshold and a 100 ms data-timeout abort. A lost operator
+drag signal holds immediately and exits only if it persists for 300 ms. The
+real-time command loop does not perform blocking state reads.
+It remains separate from OpenPI policy execution.
+
+For a short supervised `.101` -> `.102` teleoperation check, put `.101` in
+drag mode and run both processes from one terminal:
+
+```bash
+deployment/jaka_mini2/run_six_joint_teleop.sh 30
+```
+
+The optional second argument selects the JAKA controller filter:
+
+```bash
+deployment/jaka_mini2/run_six_joint_teleop.sh 20 baseline  # current host-side smoothing only
+deployment/jaka_mini2/run_six_joint_teleop.sh 20 nlf       # controller speed/accel/jerk limiting
+deployment/jaka_mini2/run_six_joint_teleop.sh 20 lpf 1.0   # lower-latency LPF
+deployment/jaka_mini2/run_six_joint_teleop.sh 20 lpf 0.5   # JAKA example LPF
+```
+
+Each run explicitly configures the filter, so a previous run cannot leave a
+controller-side filter active. The NLF trial uses 45 deg/s, 600 deg/s² and
+6000 deg/s³; these are responsive starting values and should be evaluated
+with small motions first.
+
+LPF cutoff is the optional third argument. A higher cutoff responds faster but
+filters less; use `1.0`, then `1.5`, and only then `2.0` when tuning for lower
+latency. The default LPF cutoff is `1.0`.
+
+The script starts the `.102` follower first, then the `.101` publisher. The
+follower, publisher and `.101` SDK sampler use separate performance CPU cores
+(8, 10 and 6 by default). The sampler exposes a joint sample immediately after
+each SDK read; the publisher wakes on new samples and uses an 8 ms heartbeat
+only while the SDK is blocked. Readiness queries therefore no longer make a
+fresh joint sample old. Repeated samples retain their original acquisition
+timestamp; the follower holds at 40 ms and stops at 100 ms of source age. The
+script stops all processes together on `Ctrl+C` or when either process exits.
+To run the programs separately for diagnosis, use two terminals:
+
+The interpolation horizon can be tested without rebuilding by setting
+`JAKA_SERVO_STEP_NUM` from `1` through `4`; the default is `1`:
+
+```bash
+JAKA_SERVO_STEP_NUM=2 deployment/jaka_mini2/run_six_joint_teleop.sh 20
+```
+
+```bash
+# Terminal 1: tracking arm (.102), stop automatically after 30 seconds
+/tmp/jaka_mini2_adapter-hardware/six_joint_follow_test \
+  192.168.0.102 /tmp/jaka_six_joint.sock START_SIX_JOINTS 30
+
+# Terminal 2: operator arm (.101)
+/tmp/jaka_mini2_adapter-hardware/operator_joint_publisher \
+  192.168.0.101 /tmp/jaka_six_joint.sock 30
+```
+
+Press `Ctrl+C` in either terminal to stop early. Loss of operator packets makes
+the follower hold after 40 ms and abort after 100 ms. The final follower line
+reports `missed_servo_periods`; a nonzero or increasing value indicates host or
+SDK timing stalls that can still be felt as motion jitter.
 
 ## Camera verification
 
