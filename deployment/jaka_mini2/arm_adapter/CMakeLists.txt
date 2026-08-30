@@ -33,7 +33,7 @@ if(BUILD_JAKA_HARDWARE_TOOLS)
   target_link_directories(jaka_vendor_sdk INTERFACE ${JAKA_SDK_ROOT}/lib)
   target_link_libraries(jaka_vendor_sdk INTERFACE jakaAPI pthread)
 
-  foreach(tool operator_joint_publisher six_joint_follow_test waypoint_recorder)
+  foreach(tool operator_joint_publisher six_joint_follow_test waypoint_recorder o6_fc16_single_step)
     add_executable(${tool} src/${tool}.cpp)
     target_link_libraries(${tool} PRIVATE jaka_adapter_headers jaka_vendor_sdk)
     set_target_properties(${tool} PROPERTIES BUILD_RPATH ${JAKA_SDK_ROOT}/lib)

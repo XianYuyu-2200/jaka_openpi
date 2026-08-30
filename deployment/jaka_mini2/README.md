@@ -154,6 +154,17 @@ O6 device positions in `0..255`, not JAKA arm joint angles. Configure them in
 O6 commands remain disabled until a separate supervised FC16 small-motion
 commissioning procedure is approved.
 
+After approval, the isolated FC16 probe can be run as follows. It changes only
+one channel by five counts, reads the result, and restores the original value;
+it does not enable JAKA arm servo mode:
+
+```bash
+/tmp/jaka_mini2_adapter-fc16/o6_fc16_single_step \
+  192.168.0.102 0 -5 ENABLE_O6_FC16_SINGLE_STEP
+```
+
+The live probe completed with channel 0 `254 -> 249 -> 254`.
+
 `runtime/recording.py` defines the LeRobot schema and the episode admission
 rule. Frames contain:
 
