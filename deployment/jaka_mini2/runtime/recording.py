@@ -67,9 +67,7 @@ class EpisodeRecorder:
         self.dataset.add_frame(
             {
                 "observation.images.base_0_rgb": np.asarray(images["base_0_rgb"], dtype=np.uint8),
-                "observation.images.left_wrist_0_rgb": np.asarray(
-                    images["left_wrist_0_rgb"], dtype=np.uint8
-                ),
+                "observation.images.left_wrist_0_rgb": np.asarray(images["left_wrist_0_rgb"], dtype=np.uint8),
                 "observation.state": state,
                 "action": action_array,
                 "task": self.task,
@@ -132,7 +130,13 @@ class EpisodeRecorder:
         )
 
 
-def create_lerobot_dataset(spec: DatasetSpec, root: pathlib.Path, *, use_videos: bool = True) -> Any:
+def create_lerobot_dataset(
+    spec: DatasetSpec,
+    root: pathlib.Path,
+    *,
+    use_videos: bool = True,
+    image_writer_threads: int = 0,
+) -> Any:
     from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
     return LeRobotDataset.create(
@@ -142,4 +146,45 @@ def create_lerobot_dataset(spec: DatasetSpec, root: pathlib.Path, *, use_videos:
         robot_type=spec.robot_type,
         features=spec.features,
         use_videos=use_videos,
+        image_writer_threads=image_writer_threads,
+    )
+
+
+def open_or_create_lerobot_dataset(
+    spec: DatasetSpec,
+    root: pathlib.Path,
+    *,
+    use_videos: bool = True,
+    image_writer_threads: int = 0,
+) -> Any:
+    """Open an existing local dataset or create it on the first session."""
+    info_path = root / "meta" / "info.json"
+    if info_path.is_file():
+        info = json.loads(info_path.read_text(encoding="utf-8"))
+        if int(info.get("total_episodes", 0)) == 0:
+            image_root = root / "images"
+            if (
+                any(root.rglob("*.parquet"))
+                or any(root.rglob("*.mp4"))
+                or (image_root.exists() and any(path.is_file() for path in image_root.rglob("*")))
+            ):
+                raise RuntimeError(f"empty dataset metadata has recoverable files; inspect before retrying: {root}")
+            shutil.rmtree(root)
+            return create_lerobot_dataset(
+                spec,
+                root,
+                use_videos=use_videos,
+                image_writer_threads=image_writer_threads,
+            )
+        from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+
+        dataset = LeRobotDataset(spec.repo_id, root=root)
+        if image_writer_threads:
+            dataset.start_image_writer(num_threads=image_writer_threads)
+        return dataset
+    return create_lerobot_dataset(
+        spec,
+        root,
+        use_videos=use_videos,
+        image_writer_threads=image_writer_threads,
     )

@@ -42,9 +42,10 @@ requires the target TCP position computed by forward kinematics. If target FK
 is unavailable, workspace validation rejects the action instead of bypassing
 the check.
 
-The default runtime mode is non-writing. The right O6 state source has passed
-real FC04 validation through JAKA TIO RS485-1. Hardware motion remains blocked
-because the O6 write path has not yet been commissioned.
+The default OpenPI policy runtime mode is non-writing. The right O6 state
+source has passed real FC04 validation through JAKA TIO RS485-1. Calibrated O6
+presets may be sent only by the supervised keyboard practice/recording path;
+policy-driven hardware motion remains blocked.
 
 ## Offline verification
 
@@ -199,7 +200,7 @@ separate low-risk commissioning procedure and explicit operator approval.
 
 ### Keyboard O6 demonstration labels
 
-The first collection-stage tool is intentionally read-only. It reads the real
+The preview tool is intentionally read-only. It reads the real
 `.102` arm and O6 state at about 5 Hz and logs keyboard-selected O6 targets to
 `local_runtime/logs/o6_keyboard_events.jsonl`. It contains no FC16 call and
 does not create a training episode.
@@ -211,9 +212,9 @@ does not create a training episode.
 Keys `1` through `5` select the configured hand poses, Space latches the
 current real O6 state as a hold target, and `q` exits. The poses are six native
 O6 device positions in `0..255`, not JAKA arm joint angles. Configure them in
-`config/o6_hand_presets.yaml`. Uncalibrated (`null`) poses are rejected. Real
-O6 commands remain disabled until a separate supervised FC16 small-motion
-commissioning procedure is approved.
+`config/o6_hand_presets.yaml`. Uncalibrated (`null`) poses are rejected. The
+approved combined teleoperation recorder below is the supervised FC16 write
+path; this preview itself never sends commands.
 
 After approval, the isolated FC16 probe can be run as follows. It changes only
 one channel by five counts, reads the result, and restores the original value;
@@ -249,7 +250,39 @@ The arm processes run without a duration limit. Press `q` in the foreground
 keyboard controller (or `Ctrl+C`) to stop the O6 controller and both arm
 processes together. Each hand key event is appended to
 `local_runtime/logs/o6_practice_events.jsonl` for workflow review; this is a
-practice log, not a formal LeRobot episode.
+practice log, not a formal LeRobot episode. The keyboard process sends presets
+over a local Unix socket to the active `.102` follower, which performs FC16
+through its existing JAKA SDK session. This avoids opening a second `.102`
+session that can interrupt servo following.
+
+### Formal teleoperation recording
+
+Start the synchronized 5 Hz LeRobot recorder with:
+
+```bash
+deployment/jaka_mini2/run_teleop_o6_record.sh lpf 1.5
+```
+
+The follower remains the only process logged into `.102`. Every 200 ms it
+publishes the actual `.102` joint state, the verified O6 signal-cache state,
+and the current arm/O6 command target to the recorder. The recorder pairs the
+latest snapshot with both Orbbec RGB frames and writes the 12-D state/action
+contract below.
+
+Keyboard controls are:
+
+- `r`: begin a new episode;
+- `1` through `5`: command and label an O6 preset;
+- `Space`: latch and command the current O6 state;
+- `s`: finish as success and save to the training dataset;
+- `f`: finish as failed and archive outside the training dataset;
+- `q`: interrupt any active episode and stop the complete session.
+
+Data is stored under
+`local_runtime/datasets/jaka_mini2_linker_o6_coffee_service_v001`. Episode and
+O6 event logs are written to `local_runtime/logs`. A stale robot snapshot,
+invalid O6 feedback, interruption, or failed episode is never admitted as a
+successful training episode.
 
 `runtime/recording.py` defines the LeRobot schema and the episode admission
 rule. Frames contain:
@@ -293,8 +326,9 @@ J1-J6 are converted to delta targets for training; O6 J1-J6 stay absolute.
   cross-device pairing below 20 ms are confirmed with the official SDK.
 - Controller joint limits, application velocity limits and the P1-P11 TCP
   workspace remain marked unconfirmed in `robot_config.yaml`.
-- O6 writes remain disabled. Do not send FC16 or enable policy hardware mode
-  until a supervised small-motion commissioning test is explicitly approved.
+- OpenPI policy hardware mode remains disabled pending separate explicit
+  approval. The supervised keyboard teleoperation/recording path may send the
+  calibrated O6 presets through the existing `.102` session.
 
 ## Directory map
 

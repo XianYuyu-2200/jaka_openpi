@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <future>
 #include <memory>
@@ -42,6 +43,7 @@ public:
             try {
                 for(auto& stream : streams_) {
                     stream.device = devices->getDeviceBySN(stream.serial.c_str());
+                    configure_color(stream);
                     stream.pipeline = std::make_unique<ob::Pipeline>(stream.device);
                     auto config = std::make_shared<ob::Config>();
                     config->enableVideoStream(OB_STREAM_COLOR, width_, height_, fps_, stream.format);
@@ -97,6 +99,29 @@ public:
     const char* last_error() const { return last_error_.c_str(); }
 
 private:
+    static int configured_int(const char* name, int fallback) {
+        const char* raw = std::getenv(name);
+        if(raw == nullptr) return fallback;
+        const int value = std::stoi(raw);
+        if(value < 0 || value > 100) throw std::invalid_argument(std::string(name) + " must be in 0..100");
+        return value;
+    }
+
+    static void configure_color(Stream& stream) {
+        const char* variable = stream.serial == "CV2L761000KT" ? "JAKA_WRIST_COLOR_SHARPNESS"
+                                                               : "JAKA_BASE_COLOR_SHARPNESS";
+        const int sharpness = configured_int(variable, 50);
+        if(!stream.device->isPropertySupported(OB_PROP_COLOR_SHARPNESS_INT, OB_PERMISSION_WRITE)) {
+            if(std::getenv(variable) != nullptr) throw std::runtime_error(std::string(variable) + " is unsupported");
+            return;
+        }
+        const auto range = stream.device->getIntPropertyRange(OB_PROP_COLOR_SHARPNESS_INT);
+        if(sharpness < range.min || sharpness > range.max || (sharpness - range.min) % range.step != 0) {
+            throw std::invalid_argument(std::string(variable) + " is outside the camera range");
+        }
+        stream.device->setIntProperty(OB_PROP_COLOR_SHARPNESS_INT, sharpness);
+    }
+
     template <typename Function> int guard(Function&& function) {
         try {
             function();

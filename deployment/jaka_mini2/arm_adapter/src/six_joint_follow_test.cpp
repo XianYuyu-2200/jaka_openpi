@@ -2,7 +2,9 @@
 #include "joint_sample_ipc.hpp"
 #include "dry_run_core.hpp"
 #include "six_joint_mapping.hpp"
+#include "teleop_recording_ipc.hpp"
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <csignal>
@@ -20,6 +22,20 @@
 namespace {
 
 std::atomic<bool> running{true};
+constexpr std::uint32_t kO6CommandMagic = 0x364F434A;
+constexpr std::uint16_t kO6CommandVersion = 1;
+
+#pragma pack(push, 1)
+struct O6CommandPacket {
+    std::uint32_t magic;
+    std::uint16_t version;
+    std::uint16_t size;
+    std::uint64_t monotonic_ns;
+    std::uint16_t position[6];
+};
+#pragma pack(pop)
+
+static_assert(sizeof(O6CommandPacket) == 28);
 
 void stop(int) {
     running.store(false);
@@ -50,6 +66,60 @@ void print_joint_array(const double values[6],
     output << ']';
 }
 
+int send_o6_position(JAKAZuRobot& robot, const O6CommandPacket& packet) {
+    std::array<std::uint8_t, 21> frame{
+        0x27, 0x10, 0x00, 0x00, 0x00, 0x06, 0x0C,
+    };
+    for (int index = 0; index < 6; ++index) {
+        if (packet.position[index] > 255) return -2;
+        frame[7 + index * 2] = 0x00;
+        frame[8 + index * 2] =
+            static_cast<std::uint8_t>(packet.position[index]);
+    }
+    std::uint16_t crc = 0xFFFF;
+    for (std::size_t i = 0; i < 19; ++i) {
+        crc ^= frame[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc & 1) != 0
+                      ? static_cast<std::uint16_t>((crc >> 1) ^ 0xA001)
+                      : static_cast<std::uint16_t>(crc >> 1);
+        }
+    }
+    frame[19] = static_cast<std::uint8_t>(crc & 0xFF);
+    frame[20] = static_cast<std::uint8_t>((crc >> 8) & 0xFF);
+    return robot.send_tio_rs_command(
+        0, frame.data(), static_cast<int>(frame.size()));
+}
+
+int read_o6_position(JAKAZuRobot& robot, std::uint16_t position[6]) {
+    std::array<SignInfo, 64> signals{};
+    int count = static_cast<int>(signals.size());
+    const int result = robot.get_rs485_signal_info(signals.data(), &count);
+    if (result != 0 || count < 6 || count > static_cast<int>(signals.size())) {
+        return result != 0 ? result : -2;
+    }
+    constexpr std::array<const char*, 6> names = {
+        "o6_r_pos0", "o6_r_pos1", "o6_r_pos2",
+        "o6_r_pos3", "o6_r_pos4", "o6_r_pos5"};
+    std::array<bool, 6> found{};
+    for (int i = 0; i < count; ++i) {
+        signals[i].sig_name[sizeof(signals[i].sig_name) - 1] = '\0';
+        for (int joint = 0; joint < 6; ++joint) {
+            if (std::strcmp(signals[i].sig_name, names[joint]) == 0 &&
+                signals[i].chn_id == 0 && signals[i].sig_type == 4 &&
+                signals[i].sig_addr == joint && signals[i].value >= 0 &&
+                signals[i].value <= 255) {
+                position[joint] = static_cast<std::uint16_t>(signals[i].value);
+                found[joint] = true;
+            }
+        }
+    }
+    for (bool present : found) {
+        if (!present) return -3;
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -75,6 +145,9 @@ int main(int argc, char* argv[]) {
         std::getenv("JAKA_LPF_CUTOFF") == nullptr
             ? 1.0
             : std::stod(std::getenv("JAKA_LPF_CUTOFF"));
+    const bool hold_on_operator_idle =
+        std::getenv("JAKA_HOLD_ON_OPERATOR_IDLE") != nullptr &&
+        std::string(std::getenv("JAKA_HOLD_ON_OPERATOR_IDLE")) == "1";
     if (!(lpf_cutoff > 0.0 && lpf_cutoff <= 20.0)) {
         std::cerr << "JAKA_LPF_CUTOFF must be in (0, 20]\n";
         return 64;
@@ -114,6 +187,7 @@ int main(int argc, char* argv[]) {
               << " ip=" << tracking_ip
               << " servo_step_num=" << servo_step_num
               << " interpolation_ms=" << servo_step_num * 8
+              << " hold_on_operator_idle=" << (hold_on_operator_idle ? 1 : 0)
               << std::endl;
     if (login_ret != 0) {
         close(socket_fd);
@@ -173,6 +247,75 @@ int main(int argc, char* argv[]) {
         return 3;
     }
 
+    int o6_socket_fd = -1;
+    std::string o6_socket_path;
+    if (const char* configured = std::getenv("JAKA_O6_CONTROL_SOCKET")) {
+        o6_socket_path = configured;
+        if (o6_socket_path.size() >= sizeof(sockaddr_un::sun_path)) {
+            robot.servo_move_use_none_filter();
+            robot.login_out();
+            close(socket_fd);
+            unlink(socket_path.c_str());
+            return 69;
+        }
+        o6_socket_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+        if (o6_socket_fd < 0) {
+            robot.servo_move_use_none_filter();
+            robot.login_out();
+            close(socket_fd);
+            unlink(socket_path.c_str());
+            return 70;
+        }
+        sockaddr_un o6_address{};
+        o6_address.sun_family = AF_UNIX;
+        std::strncpy(o6_address.sun_path,
+                     o6_socket_path.c_str(),
+                     sizeof(o6_address.sun_path) - 1);
+        unlink(o6_socket_path.c_str());
+        if (bind(o6_socket_fd,
+                 reinterpret_cast<const sockaddr*>(&o6_address),
+                 sizeof(o6_address)) != 0) {
+            close(o6_socket_fd);
+            robot.servo_move_use_none_filter();
+            robot.login_out();
+            close(socket_fd);
+            unlink(socket_path.c_str());
+            return 71;
+        }
+        std::cout << "o6_control_socket=" << o6_socket_path << '\n';
+    }
+
+    int recording_socket_fd = -1;
+    std::string recording_socket_path;
+    sockaddr_un recording_destination{};
+    if (const char* configured = std::getenv("JAKA_RECORD_STATE_SOCKET")) {
+        recording_socket_path = configured;
+        if (recording_socket_path.size() >= sizeof(sockaddr_un::sun_path)) {
+            if (o6_socket_fd >= 0) close(o6_socket_fd);
+            if (!o6_socket_path.empty()) unlink(o6_socket_path.c_str());
+            robot.servo_move_use_none_filter();
+            robot.login_out();
+            close(socket_fd);
+            unlink(socket_path.c_str());
+            return 72;
+        }
+        recording_socket_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+        if (recording_socket_fd < 0) {
+            if (o6_socket_fd >= 0) close(o6_socket_fd);
+            if (!o6_socket_path.empty()) unlink(o6_socket_path.c_str());
+            robot.servo_move_use_none_filter();
+            robot.login_out();
+            close(socket_fd);
+            unlink(socket_path.c_str());
+            return 73;
+        }
+        recording_destination.sun_family = AF_UNIX;
+        std::strncpy(recording_destination.sun_path,
+                     recording_socket_path.c_str(),
+                     sizeof(recording_destination.sun_path) - 1);
+        std::cout << "record_state_socket=" << recording_socket_path << '\n';
+    }
+
     double tracking_zero[6]{};
     double operator_zero[6]{};
     for (int joint = 0; joint < 6; ++joint) {
@@ -192,6 +335,12 @@ int main(int argc, char* argv[]) {
     std::uint64_t servo_calls_over_16ms = 0;
     std::uint64_t servo_calls_over_24ms = 0;
     std::uint64_t last_command_started_ns = 0;
+    std::uint64_t o6_commands = 0;
+    std::uint64_t o6_failures = 0;
+    std::uint64_t max_o6_call_ns = 0;
+    std::uint64_t recording_samples = 0;
+    std::uint64_t recording_send_errors = 0;
+    std::uint64_t max_recording_read_ns = 0;
     long double latency_sum_ns = 0.0;
     const std::uint64_t launch_ns = monotonic_ns();
     std::uint64_t active_started_ns = 0;
@@ -211,6 +360,12 @@ int main(int argc, char* argv[]) {
     jaka_dry_run::TargetSmoother smoother;
     double operator_position[6]{};
     double desired_target[6]{};
+    O6CommandPacket pending_o6{};
+    bool have_pending_o6 = false;
+    std::array<std::uint16_t, 6> current_o6_action{};
+    bool have_o6_action = false;
+    std::array<std::uint16_t, 6> recording_actual_hand{};
+    int recording_hand_state_ret = -4;
 
     while (running.load()) {
         const std::uint64_t loop_now_ns = monotonic_ns();
@@ -220,7 +375,7 @@ int main(int argc, char* argv[]) {
             stop_reason = "DURATION";
             break;
         }
-        if (!have_operator_zero &&
+        if (!hold_on_operator_idle && !have_operator_zero &&
             loop_now_ns - launch_ns >= 15'000'000'000ULL) {
             stop_reason = "OPERATOR_READINESS_TIMEOUT";
             break;
@@ -249,6 +404,24 @@ int main(int argc, char* argv[]) {
         }
         if (!running.load()) break;
 
+        if (o6_socket_fd >= 0) {
+            while (true) {
+                O6CommandPacket candidate{};
+                const ssize_t bytes = recv(
+                    o6_socket_fd, &candidate, sizeof(candidate), MSG_DONTWAIT);
+                if (bytes < 0) break;
+                if (bytes != static_cast<ssize_t>(sizeof(candidate)) ||
+                    candidate.magic != kO6CommandMagic ||
+                    candidate.version != kO6CommandVersion ||
+                    candidate.size != sizeof(candidate)) {
+                    ++o6_failures;
+                    continue;
+                }
+                pending_o6 = candidate;
+                have_pending_o6 = true;
+            }
+        }
+
         if (!have_latest_packet) {
             if (last_packet_ns != 0 && loop_now_ns - last_packet_ns >= 100'000'000ULL) {
                 stop_reason = "DATA_TIMEOUT";
@@ -263,12 +436,20 @@ int main(int argc, char* argv[]) {
             if (!operator_ready && !have_operator_zero) {
                 // Keep waiting for the operator to enter drag mode.
             } else if (!operator_ready) {
-                if (operator_not_ready_since_ns == 0) {
-                    operator_not_ready_since_ns = loop_now_ns;
-                } else if (loop_now_ns - operator_not_ready_since_ns >=
-                           300'000'000ULL) {
-                    stop_reason = "OPERATOR_NOT_READY";
-                    break;
+                if (hold_on_operator_idle) {
+                    // Practice mode: release the operator and hold the last
+                    // target while waiting for the next drag interval. A
+                    // dead publisher still trips the independent data-timeout
+                    // watchdog below.
+                    operator_not_ready_since_ns = 0;
+                } else {
+                    if (operator_not_ready_since_ns == 0) {
+                        operator_not_ready_since_ns = loop_now_ns;
+                    } else if (loop_now_ns - operator_not_ready_since_ns >=
+                               300'000'000ULL) {
+                        stop_reason = "OPERATOR_NOT_READY";
+                        break;
+                    }
                 }
             } else if (!have_operator_zero) {
                 operator_not_ready_since_ns = 0;
@@ -369,6 +550,83 @@ int main(int argc, char* argv[]) {
         }
         ++commands;
 
+        if (have_pending_o6) {
+            const std::uint64_t o6_started_ns = monotonic_ns();
+            const int o6_ret = send_o6_position(robot, pending_o6);
+            const std::uint64_t o6_call_ns = monotonic_ns() - o6_started_ns;
+            max_o6_call_ns = std::max(max_o6_call_ns, o6_call_ns);
+            ++o6_commands;
+            if (o6_ret != 0) ++o6_failures;
+            if (o6_ret == 0) {
+                for (int index = 0; index < 6; ++index) {
+                    current_o6_action[index] = pending_o6.position[index];
+                }
+                have_o6_action = true;
+            }
+            std::cout << "o6_command=" << o6_commands
+                      << " ret=" << o6_ret
+                      << " call_ms="
+                      << static_cast<double>(o6_call_ns) / 1e6
+                      << " target=[";
+            for (int index = 0; index < 6; ++index) {
+                if (index != 0) std::cout << ", ";
+                std::cout << pending_o6.position[index];
+            }
+            std::cout << "]\n";
+            have_pending_o6 = false;
+        }
+
+        // Stagger O6 and arm state reads by about 100 ms so two blocking SDK
+        // queries never land in the same 8 ms servo cycle.
+        if (recording_socket_fd >= 0 && commands % 25 == 12) {
+            const std::uint64_t read_started_ns = monotonic_ns();
+            recording_hand_state_ret =
+                read_o6_position(robot, recording_actual_hand.data());
+            max_recording_read_ns = std::max(
+                max_recording_read_ns, monotonic_ns() - read_started_ns);
+            if (recording_hand_state_ret == 0 && !have_o6_action) {
+                current_o6_action = recording_actual_hand;
+                have_o6_action = true;
+            }
+        }
+
+        if (recording_socket_fd >= 0 && commands % 25 == 0) {
+            const std::uint64_t read_started_ns = monotonic_ns();
+            JointValue actual{};
+            const int arm_state_ret = robot.get_actual_joint_position(&actual);
+            const std::uint64_t recording_read_ns =
+                monotonic_ns() - read_started_ns;
+            max_recording_read_ns =
+                std::max(max_recording_read_ns, recording_read_ns);
+
+            jaka_recording_ipc::TeleopSnapshotPacket snapshot{};
+            snapshot.magic = jaka_recording_ipc::kMagic;
+            snapshot.version = jaka_recording_ipc::kVersion;
+            snapshot.size = sizeof(snapshot);
+            snapshot.sequence = recording_samples;
+            snapshot.monotonic_ns = monotonic_ns();
+            snapshot.arm_state_ret = arm_state_ret;
+            snapshot.hand_state_ret = recording_hand_state_ret;
+            snapshot.operator_dragging = operator_ready_now ? 1 : 0;
+            for (int index = 0; index < 6; ++index) {
+                snapshot.actual_arm[index] = actual.jVal[index];
+                snapshot.action_arm[index] = target_position[index];
+                snapshot.actual_hand[index] = recording_actual_hand[index];
+                snapshot.action_hand[index] = current_o6_action[index];
+            }
+            const ssize_t sent_bytes = sendto(
+                recording_socket_fd,
+                &snapshot,
+                sizeof(snapshot),
+                0,
+                reinterpret_cast<const sockaddr*>(&recording_destination),
+                sizeof(recording_destination));
+            ++recording_samples;
+            if (sent_bytes != static_cast<ssize_t>(sizeof(snapshot))) {
+                ++recording_send_errors;
+            }
+        }
+
         const std::uint64_t latency_ns =
             latest_received_ns >= latest_packet.monotonic_ns
                 ? latest_received_ns - latest_packet.monotonic_ns
@@ -423,7 +681,10 @@ int main(int argc, char* argv[]) {
     }
     const int filter_reset_ret = robot.servo_move_use_none_filter();
     const int logout_ret = robot.login_out();
+    if (o6_socket_fd >= 0) close(o6_socket_fd);
+    if (recording_socket_fd >= 0) close(recording_socket_fd);
     close(socket_fd);
+    if (!o6_socket_path.empty()) unlink(o6_socket_path.c_str());
     unlink(socket_path.c_str());
 
     std::cout << std::fixed << std::setprecision(6)
@@ -453,6 +714,14 @@ int main(int argc, char* argv[]) {
               << " abort_ret=" << abort_ret
               << " servo_disable_ret=" << servo_disable_ret
               << " filter_reset_ret=" << filter_reset_ret
+              << " o6_commands=" << o6_commands
+              << " o6_failures=" << o6_failures
+              << " max_o6_call_ms="
+              << static_cast<double>(max_o6_call_ns) / 1e6
+              << " recording_samples=" << recording_samples
+              << " recording_send_errors=" << recording_send_errors
+              << " max_recording_read_ms="
+              << static_cast<double>(max_recording_read_ns) / 1e6
               << " logout_ret=" << logout_ret << '\n';
 
     return commands > 0 && abort_ret == 0 && servo_disable_ret == 0 &&
